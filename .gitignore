@@ -1,0 +1,29 @@
+# Ambiente virtual
+.env/
+.venv/
+env/
+venv/
+
+imoveis.xlsx
+
+# PyCharm
+.idea/
+
+# PyInstaller / Logs / Cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+*.sqlite3
+
+# Testes
+.pytest_cache/
+.hypothesis/
+.coverage
+
+# Ferramentas de análise estática (opcional conforme uso)
+.ruff_cache/
+.mypy_cache/
+.pytype/
+.pyre/
