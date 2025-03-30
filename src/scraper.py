@@ -1,6 +1,7 @@
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
+from selenium.common.exceptions import NoSuchElementException, ElementClickInterceptedException
 from webdriver_manager.chrome import ChromeDriverManager
 import time
 import pandas as pd
@@ -23,6 +24,31 @@ def init_driver(headless=False):
 def extract_visible_properties(driver, url):
     driver.get(url)
     time.sleep(4)
+
+    while True:
+
+        last_height = driver.execute_script("return document.body.scrollHeight")
+        for i in range(0, last_height, 500):
+            driver.execute_script(f"window.scrollTo(0, {i});")
+            time.sleep(0.3)
+
+        time.sleep(2)
+
+        try:
+            ver_mais = driver.find_element(By.ID, "see-more")
+            print("🔘 Botão 'Ver mais' encontrado. Clicando para carregar mais imóveis...")
+            driver.execute_script("arguments[0].scrollIntoView();", ver_mais)
+            time.sleep(1)
+            ver_mais.click()
+            time.sleep(3)
+        except NoSuchElementException:
+            print("✅ Nenhum botão 'Ver mais' encontrado. Continuando extração...")
+            break
+        except ElementClickInterceptedException:
+            print("⚠️ Clique interceptado. Tentando scroll e nova tentativa...")
+            driver.execute_script("arguments[0].scrollIntoView();", ver_mais)
+            time.sleep(2)
+            continue
 
     cards = driver.find_elements(By.CSS_SELECTOR, 'div[data-testid="house-card-container-rent"]')
     print(f"🔎 {len(cards)} imóveis visíveis encontrados")
