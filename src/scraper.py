@@ -10,7 +10,6 @@ async def extract_visible_properties(url):
         await page.goto(url)
         await page.wait_for_timeout(4000)
 
-        # Scroll + clique no botão "Ver mais"
         while True:
             found_button = False
             for _ in range(30):
@@ -19,7 +18,6 @@ async def extract_visible_properties(url):
                 try:
                     button = await page.query_selector('#see-more')
                     if button:
-                        print("🔘 Botão 'Ver mais' encontrado. Clicando para carregar mais imóveis...")
                         await button.scroll_into_view_if_needed()
                         await page.wait_for_timeout(1000)
                         await button.click()
@@ -29,12 +27,9 @@ async def extract_visible_properties(url):
                 except:
                     pass
             if not found_button:
-                print("✅ Nenhum botão 'Ver mais' encontrado. Continuando extração...")
                 break
 
-        # Captura os cards
         cards = await page.query_selector_all('div[data-testid="house-card-container-rent"]')
-        print(f"🔎 {len(cards)} imóveis visíveis encontrados")
 
         imoveis = []
 
@@ -42,41 +37,41 @@ async def extract_visible_properties(url):
             try:
                 href = await card.eval_on_selector("a", "el => el.href")
 
-                try:
-                    descricaoPrimaria = await card.locator("h2.CozyTypography").first.inner_text()
-                except:
-                    descricaoPrimaria = ""
+                descricao_el = await card.query_selector("h2.CozyTypography._72Hu5c")
+                descricao = await descricao_el.inner_text() if descricao_el else ""
 
-                try:
-                    valor_total = await card.locator("div.Cozy__CardTitle-Title").first.inner_text()
-                    valor_total = valor_total.replace("total", "").replace("R$", "").strip()
-                except:
-                    valor_total = ""
+                valor_total_el = await card.query_selector("div.Cozy__CardTitle-Title")
+                valor_total = await valor_total_el.inner_text() if valor_total_el else ""
+                valor_total = valor_total.replace("total", "").replace("R$", "").strip()
 
-                try:
-                    valor_aluguel = await card.locator("div.Cozy__CardTitle-Subtitle").first.inner_text()
-                    valor_aluguel = valor_aluguel.replace("aluguel", "").replace("R$", "").strip()
-                except:
-                    valor_aluguel = ""
+                valor_aluguel_el = await card.query_selector("div.Cozy__CardTitle-Subtitle")
+                valor_aluguel = await valor_aluguel_el.inner_text() if valor_aluguel_el else ""
+                valor_aluguel = valor_aluguel.replace("aluguel", "").replace("R$", "").strip()
 
+                detalhes_el = await card.query_selector("h3.CozyTypography")
+                detalhes = await detalhes_el.inner_text() if detalhes_el else ""
+                area, quartos, vagas = "", "", ""
                 try:
-                    detalhes = await card.locator("h3.CozyTypography").first.inner_text()
+                    partes = [p.strip() for p in detalhes.split("·")]
+                    area = partes[0] if len(partes) > 0 else ""
+                    quartos = partes[1] if len(partes) > 1 else ""
+                    vagas = partes[2] if len(partes) > 2 else ""
                 except:
-                    detalhes = ""
+                    pass
 
-                try:
-                    enderecos = await card.locator("h2.CozyTypography").all_inner_texts()
-                    enderecoAproximado = enderecos[-1].strip().replace(",", " - ") if len(enderecos) > 1 else ""
-                except:
-                    enderecoAproximado = ""
+                enderecos_el = await card.query_selector_all("h2.CozyTypography")
+                enderecos = [await el.inner_text() for el in enderecos_el]
+                enderecoAproximado = enderecos[-1].strip().replace(",", " - ") if len(enderecos) > 1 else ""
 
                 imoveis.append({
                     "url": href,
-                    "descricao Primaria": descricaoPrimaria,
+                    "descricao": descricao,
                     "valor_total": valor_total,
                     "valor_aluguel": valor_aluguel,
-                    "enderecoAproximado": enderecoAproximado,
-                    "detalhes": detalhes
+                    "area": area,
+                    "quartos": quartos,
+                    "vagas": vagas,
+                    "endereco": enderecoAproximado
                 })
 
             except Exception as e:
@@ -90,9 +85,5 @@ def main():
     url = "https://www.quintoandar.com.br/alugar/imovel/contagem-mg-brasil/de-500-a-1500-reais/1-quartos/1-2-3-vagas/aceita-pets"
     df = asyncio.run(extract_visible_properties(url))
     print("\n✅ Fim da execução.")
-    print(df.head(10).to_string(index=False))
     df.to_excel("imoveis.xlsx", index=False)
     print("📁 Arquivo 'imoveis.xlsx' salvo com sucesso!")
-
-if __name__ == "__main__":
-    main()
