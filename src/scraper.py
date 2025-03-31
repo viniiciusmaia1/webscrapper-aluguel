@@ -1,108 +1,98 @@
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.service import Service
-from selenium.common.exceptions import NoSuchElementException, ElementClickInterceptedException
-from webdriver_manager.chrome import ChromeDriverManager
-import time
+import asyncio
 import pandas as pd
+from playwright.async_api import async_playwright
 
-def init_driver(headless=False):
-    options = webdriver.ChromeOptions()
+async def extract_visible_properties(url):
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=False)
+        context = await browser.new_context(viewport={"width": 1920, "height": 1080})
+        page = await context.new_page()
+        await page.goto(url)
+        await page.wait_for_timeout(4000)
 
-    if headless:
-        options.add_argument("--headless=new")
-        options.add_argument("--disable-gpu")
+        # Scroll + clique no botão "Ver mais"
+        while True:
+            found_button = False
+            for _ in range(30):
+                await page.mouse.wheel(0, 300)
+                await page.wait_for_timeout(300)
+                try:
+                    button = await page.query_selector('#see-more')
+                    if button:
+                        print("🔘 Botão 'Ver mais' encontrado. Clicando para carregar mais imóveis...")
+                        await button.scroll_into_view_if_needed()
+                        await page.wait_for_timeout(1000)
+                        await button.click()
+                        await page.wait_for_timeout(3000)
+                        found_button = True
+                        break
+                except:
+                    pass
+            if not found_button:
+                print("✅ Nenhum botão 'Ver mais' encontrado. Continuando extração...")
+                break
 
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--window-size=1920,1080")
+        # Captura os cards
+        cards = await page.query_selector_all('div[data-testid="house-card-container-rent"]')
+        print(f"🔎 {len(cards)} imóveis visíveis encontrados")
 
-    service = Service(ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service, options=options)
-    return driver
+        imoveis = []
 
-def extract_visible_properties(driver, url):
-    driver.get(url)
-    time.sleep(4)
-
-    while True:
-
-        last_height = driver.execute_script("return document.body.scrollHeight")
-        for i in range(0, last_height, 500):
-            driver.execute_script(f"window.scrollTo(0, {i});")
-            time.sleep(0.3)
-
-        time.sleep(2)
-
-        try:
-            ver_mais = driver.find_element(By.ID, "see-more")
-            print("🔘 Botão 'Ver mais' encontrado. Clicando para carregar mais imóveis...")
-            driver.execute_script("arguments[0].scrollIntoView();", ver_mais)
-            time.sleep(1)
-            ver_mais.click()
-            time.sleep(3)
-        except NoSuchElementException:
-            print("✅ Nenhum botão 'Ver mais' encontrado. Continuando extração...")
-            break
-        except ElementClickInterceptedException:
-            print("⚠️ Clique interceptado. Tentando scroll e nova tentativa...")
-            driver.execute_script("arguments[0].scrollIntoView();", ver_mais)
-            time.sleep(2)
-            continue
-
-    cards = driver.find_elements(By.CSS_SELECTOR, 'div[data-testid="house-card-container-rent"]')
-    print(f"🔎 {len(cards)} imóveis visíveis encontrados")
-
-    imoveis = []
-
-    for idx, card in enumerate(cards, start=1):
-        try:
-            parent_link = card.find_element(By.XPATH, ".//a")
-            href = parent_link.get_attribute("href")
-
-            # Descrição
+        for idx, card in enumerate(cards, start=1):
             try:
-                descricaoPrimaria = card.find_element(By.CSS_SELECTOR, "h2.CozyTypography.UQvm9e").text.strip()
-            except:
-                descricaoPrimaria = ""
+                href = await card.eval_on_selector("a", "el => el.href")
 
-            # Valor total
-            try:
-                valor_total = card.find_element(By.CSS_SELECTOR, "div.Cozy__CardTitle-Title").text.replace("total", "").replace("R$", "").strip()
-            except:
-                valor_total = ""
+                try:
+                    descricaoPrimaria = await card.locator("h2.CozyTypography").first.inner_text()
+                except:
+                    descricaoPrimaria = ""
 
-            # Valor aluguel
-            try:
-                valor_aluguel = card.find_element(By.CSS_SELECTOR, "div.Cozy__CardTitle-Subtitle").text.replace("aluguel", "").replace("R$", "").strip()
-            except:
-                valor_aluguel = ""
+                try:
+                    valor_total = await card.locator("div.Cozy__CardTitle-Title").first.inner_text()
+                    valor_total = valor_total.replace("total", "").replace("R$", "").strip()
+                except:
+                    valor_total = ""
 
-            # Detalhes
-            try:
-                detalhes = card.find_element(By.CSS_SELECTOR, "h3.CozyTypography").text.strip()
-            except:
-                detalhes = ""
+                try:
+                    valor_aluguel = await card.locator("div.Cozy__CardTitle-Subtitle").first.inner_text()
+                    valor_aluguel = valor_aluguel.replace("aluguel", "").replace("R$", "").strip()
+                except:
+                    valor_aluguel = ""
 
-            # Endereço
-            try:
-                enderecoAproximado = card.find_elements(By.CSS_SELECTOR, "h2.CozyTypography")[-1].text.strip()
-                enderecoAproximado = enderecoAproximado.replace(",", " - ")
-            except:
-                enderecoAproximado = ""
+                try:
+                    detalhes = await card.locator("h3.CozyTypography").first.inner_text()
+                except:
+                    detalhes = ""
 
-            imoveis.append({
-                "url": href,
-                "descricao Primaria": descricaoPrimaria,
-                "valor_total": valor_total,
-                "valor_aluguel": valor_aluguel,
-                "enderecoAproximado": enderecoAproximado,
-                "detalhes": detalhes
-            })
+                try:
+                    enderecos = await card.locator("h2.CozyTypography").all_inner_texts()
+                    enderecoAproximado = enderecos[-1].strip().replace(",", " - ") if len(enderecos) > 1 else ""
+                except:
+                    enderecoAproximado = ""
 
-        except Exception as e:
-            print(f"❌ Erro ao processar imóvel #{idx}: {e}")
-            continue
+                imoveis.append({
+                    "url": href,
+                    "descricao Primaria": descricaoPrimaria,
+                    "valor_total": valor_total,
+                    "valor_aluguel": valor_aluguel,
+                    "enderecoAproximado": enderecoAproximado,
+                    "detalhes": detalhes
+                })
 
-    df = pd.DataFrame(imoveis)
-    return df
+            except Exception as e:
+                print(f"❌ Erro ao processar imóvel #{idx}: {e}")
+                continue
+
+        await browser.close()
+        return pd.DataFrame(imoveis)
+
+def main():
+    url = "https://www.quintoandar.com.br/alugar/imovel/contagem-mg-brasil/de-500-a-1500-reais/1-quartos/1-2-3-vagas/aceita-pets"
+    df = asyncio.run(extract_visible_properties(url))
+    print("\n✅ Fim da execução.")
+    print(df.head(10).to_string(index=False))
+    df.to_excel("imoveis.xlsx", index=False)
+    print("📁 Arquivo 'imoveis.xlsx' salvo com sucesso!")
+
+if __name__ == "__main__":
+    main()
